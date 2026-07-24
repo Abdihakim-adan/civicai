@@ -1,8 +1,8 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -16,20 +16,51 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
       }}>
+      
+      {/* Home Tab */}
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={size || 28} color={color} />
+          ),
         }}
       />
+      
+      {/* Quiz Tab */}
       <Tabs.Screen
-        name="explore"
+        name="quiz"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Quiz',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="school" size={size || 28} color={color} />
+          ),
         }}
       />
+      
+      {/* Documents Tab */}
+      <Tabs.Screen
+        name="documents"
+        options={{
+          title: 'Documents',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="document-text" size={size || 28} color={color} />
+          ),
+        }}
+      />
+
+      {/* Articles Tab */}
+      <Tabs.Screen
+        name="articles"
+        options={{
+          title: 'Updates',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="newspaper" size={size || 28} color={color} />
+          ),
+        }}
+      />
+      
     </Tabs>
   );
 }
