@@ -1,0 +1,188 @@
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+
+// npx expo install @didit-protocol/sdk-react-native
+import { startVerification, VerificationStatus } from '@didit-protocol/sdk-react-native';
+
+// Point this at your deployed backend.
+const BACKEND_URL = 'https://k1-6.onrender.com';
+
+// TODO: replace with your real logged-in user's id once you have auth wired up.
+const CURRENT_USER_ID = 'demo-user-1';
+
+type VerifyState = 'idle' | 'creating_session' | 'verifying' | 'checking_result' | 'verified' | 'failed';
+
+export default function VerifyIdentityScreen() {
+  const [state, setState] = useState<VerifyState>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const checkStatus = useCallback(async (userId: string) => {
+    const res = await fetch(`${BACKEND_URL}/users/${userId}/verification-status`);
+    if (!res.ok) throw new Error(`Status check failed: ${res.status}`);
+    const data = await res.json();
+    return data.verification_status as string;
+  }, []);
+
+  const pollForResult = useCallback(
+    async (userId: string) => {
+      // The RN SDK callback fires before your webhook has necessarily been
+      // processed, so poll your backend briefly instead of trusting the
+      // client result alone.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const status = await checkStatus(userId);
+        if (status === 'verified') {
+          setState('verified');
+          return;
+        }
+        if (status === 'declined' || status === 'failed' || status === 'expired') {
+          setState('failed');
+          setErrorMessage(`Verification ${status}.`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      // Still pending after ~20s -- Didit's decision can take a bit longer
+      // for manual review cases, so don't treat this as a failure.
+      setState('checking_result');
+    },
+    [checkStatus]
+  );
+
+  const handleStartVerification = useCallback(async () => {
+    setErrorMessage(null);
+    setState('creating_session');
+
+    try {
+      const sessionRes = await fetch(`${BACKEND_URL}/create-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: CURRENT_USER_ID }),
+      });
+
+      if (!sessionRes.ok) {
+        const body = await sessionRes.text();
+        throw new Error(`Could not start verification: ${body}`);
+      }
+
+      const { session_token } = await sessionRes.json();
+      if (!session_token) throw new Error('Backend did not return a session_token.');
+
+      setState('verifying');
+      const result = await startVerification(session_token);
+
+      switch (result.type) {
+        case 'completed':
+          if (result.session.status === VerificationStatus.Approved) {
+            setState('verified');
+          } else {
+            setState('checking_result');
+            await pollForResult(CURRENT_USER_ID);
+          }
+          break;
+        case 'cancelled':
+          setState('idle');
+          break;
+        case 'failed':
+          setState('failed');
+          setErrorMessage(result.error?.message ?? 'Verification failed.');
+          break;
+        default:
+          setState('checking_result');
+          await pollForResult(CURRENT_USER_ID);
+      }
+    } catch (err) {
+      setState('failed');
+      setErrorMessage(err instanceof Error ? err.message : 'Something went wrong.');
+    }
+  }, [pollForResult]);
+
+  return (
+    <ThemedView style={styles.container}>
+      <ThemedText type="title" style={styles.title}>
+        Verify your identity
+      </ThemedText>
+      <ThemedText style={styles.subtitle}>
+        Before you can list a rental, we need to confirm your government ID and a quick selfie.
+        This keeps renters safe and builds trust in your listing.
+      </ThemedText>
+
+      {state === 'verified' ? (
+        <ThemedView style={styles.statusBox}>
+          <ThemedText type="defaultSemiBold" style={styles.successText}>
+            ✅ You're verified — you can now create a listing.
+          </ThemedText>
+        </ThemedView>
+      ) : (
+        <Pressable
+          style={[styles.button, (state === 'creating_session' || state === 'verifying') && styles.buttonDisabled]}
+          onPress={handleStartVerification}
+          disabled={state === 'creating_session' || state === 'verifying'}>
+          {state === 'creating_session' || state === 'verifying' ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.buttonText}>
+              {state === 'failed' ? 'Try again' : 'Start verification'}
+            </ThemedText>
+          )}
+        </Pressable>
+      )}
+
+      {state === 'checking_result' && (
+        <ThemedText style={styles.pendingText}>
+          Your verification is being reviewed. This can take a few minutes — we'll update this
+          screen automatically.
+        </ThemedText>
+      )}
+
+      {errorMessage && <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>}
+    </ThemedView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 24,
+    gap: 16,
+    justifyContent: 'center',
+  },
+  title: {
+    marginBottom: 4,
+  },
+  subtitle: {
+    opacity: 0.7,
+    marginBottom: 12,
+  },
+  button: {
+    backgroundColor: '#111',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  statusBox: {
+    padding: 16,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  successText: {
+    color: '#059669',
+  },
+  pendingText: {
+    opacity: 0.7,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#dc2626',
+    textAlign: 'center',
+  },
+});
